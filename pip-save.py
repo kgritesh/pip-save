@@ -1,11 +1,18 @@
 from __future__ import absolute_import
 import argparse
+from collections import OrderedDict
 import os
 import subprocess
-import pip
+import operator
 from pip._vendor.packaging.specifiers import Specifier
-from pkg_resources import WorkingSet, Requirement, pkg_resources
-import ConfigParser
+from pip.req import InstallRequirement
+import pkg_resources
+from pkg_resources import WorkingSet, Requirement
+
+try:
+    import configparser
+except ImportError:
+    import ConfigParser as configparser
 
 CONFIG_FILE = '.pipconfig'
 
@@ -18,8 +25,14 @@ DEFAULT_OPTIONS = {
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Run Pip Command')
     parser.add_argument('command', help="command to execute")
-    parser.add_argument('pkg',
-                        help="pkg to be installed/updated/uninstalled")
+    parser.add_argument('-e', '--editable', dest='editables',
+                        action='append', default=[],
+                        metavar='path/url',
+                        help=('Install a project in editable mode (i.e. setuptools '
+                            '"develop mode") from a local project path or a VCS url.'), )
+
+    parser.add_argument('packages', action='append', nargs='*',
+                        help="pkg to be installed/upd   ated/uninstalled")
 
     parser.add_argument('-r', '--requirement',
                         help='Save requirements to specified requirement file')
@@ -33,8 +46,7 @@ def parse_arguments():
 
 
 def parse_config(args):
-
-    #http://stackoverflow.com/a/2819788/911557
+    # http://stackoverflow.com/a/2819788/911557
     class FakeSecHead(object):
         def __init__(self, fp):
             self.fp = fp
@@ -51,7 +63,7 @@ def parse_config(args):
 
     args_dict = {key: val for key, val in vars(args).items() if val is not None}
     if os.path.exists(CONFIG_FILE):
-        config = ConfigParser.ConfigParser(DEFAULT_OPTIONS)
+        config = configparser.configparser(DEFAULT_OPTIONS)
         config.readfp(FakeSecHead(open(CONFIG_FILE)))
         return dict(config.items('default', 0, vars=args_dict))
 
@@ -62,53 +74,84 @@ def parse_config(args):
     return config_dict
 
 
-def execute_pip_command(command, pkg, args):
-    pip_cmd = ['pip', command, pkg]
+def execute_pip_command(command, args):
+    pip_cmd = ['pip', command]
     pip_cmd.extend(args)
     return subprocess.call(pip_cmd)
 
 
-def parse_package_name(pkgstring):
-    req = Requirement.parse(pkgstring)
-    return req.project_name.lower()
+class RequirementFileUpdater(object):
 
+    def __init__(self, config_dict, command, packages, editables):
+        self.requirement_file = config_dict['requirement']
+        self.use_compatible = config_dict.get('use_compatible', False)
+        self.command = command
+        self.existing_requirements = OrderedDict()
+        self.read_requirements()
+        for pkg in packages:
+            self.update(pkg)
 
-def get_requirement_str(config_dict, req):
-    if not req.specs:
-        dist = pkg_resources.working_set.find(req)
-        comparator = '~=' if config_dict.get('use_compatible') else '=='
-        specs = "%s%s" % (comparator, dist.version)
-        req.specifier = Specifier(specs)
+        for pkg in editables:
+            self.update(pkg, editable=True)
 
-    return str(req)
+        self.write_requirement_file()
 
+    def sort_requirements(self):
+        return sorted(self.existing_requirements.items(), key=operator.itemgetter(1))
 
-def update_requirements(config_dict, req, command):
-    pkg = req.project_name.lower()
-    with open(config_dict['requirement'], "a+") as fd:
-        requirements = fd.readlines()
+    def find_installed_requirement(self, pkgstring):
+        req = Requirement.parse(pkgstring)
+        working_set = WorkingSet()
+        if not req.specs:
+            dist = working_set.find(req)
+            comparator = '~=' if self.use_compatible else '=='
+            specs = "%s%s" % (comparator, dist.version)
+            req.specifier = Specifier(specs)
+        return str(req)
 
-        found_requirement = -1
-        for index, pkgstring in enumerate(requirements):
-            reqpkg = parse_package_name(pkgstring)
-            if reqpkg == pkg:
-                found_requirement = index
+    def get_requirement_str(self, insreq):
+        req_str = ''
+        if insreq.editable:
+            req_str += '-e '
 
-        if command == 'install':
-            req_str = get_requirement_str(config_dict, req)
-            if found_requirement == -1:
-                requirements.append(req_str)
-                requirements = sorted(requirements)
-            else:
-                requirements[found_requirement] = str(req_str)
+        if insreq.link:
+            req_str += insreq.link.url
+        else:
+            req_str += self.find_installed_requirement(insreq.name)
 
-        elif command == 'uninstall':
-            if found_requirement > -1:
-                requirements.remove(requirements[found_requirement])
+        return req_str
 
-    with open(config_dict['requirement'], "w") as fd:
-        for req in requirements:
-            fd.write("%s" % req)
+    def write_requirement_file(self):
+        with open(self.requirement_file, "r+") as fd:
+            for _, req in self.sort_requirements():
+                req_str = self.get_requirement_str(req)
+                fd.write(req_str + '\n')
+
+    @staticmethod
+    def parse_requirement(pkgstring, editable=False):
+        if editable:
+            ins = InstallRequirement.from_editable(pkgstring)
+        else:
+            ins = InstallRequirement.from_line(pkgstring)
+        return ins
+
+    def read_requirements(self):
+        with open(self.requirement_file, "r+") as fd:
+            for line in fd.readlines():
+                editable = line.startswith('-e')
+                insreq = self.parse_requirement(line.strip(), editable)
+                self.existing_requirements[insreq.name.lower()] = insreq
+
+    def update(self, pkgstring, editable=False):
+        req = self.parse_requirement(pkgstring, editable)
+        req_project_name = req.name.lower()
+        existing_req = req_project_name in self.existing_requirements
+
+        if self.command == 'install':
+            self.existing_requirements[req_project_name] = req
+        else:
+            if existing_req:
+                del self.existing_requirements[req]
 
 
 def main():
@@ -123,16 +166,22 @@ def main():
         args.command = 'install'
         remaining_args.append('--upgrade')
 
-    pip_output = execute_pip_command(args.command, args.pkg, remaining_args)
+    for editable in args.editables:
+        remaining_args.extend(['-e', '{}'.format(editable)])
+
+    packages = args.packages[0]
+
+    remaining_args.extend(packages)
+
+    pip_output = execute_pip_command(args.command, remaining_args)
 
     if pip_output != 0:
         return
 
     config_dict = parse_config(args)
 
-    req = Requirement.parse(args.pkg)
-
-    update_requirements(config_dict, req, args.command)
+    RequirementFileUpdater(config_dict, args.command, packages,
+                           args.editables)
 
 
 if __name__ == '__main__':
