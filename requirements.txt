@@ -1,5 +1,1 @@
-requests==2.9.1
-shortuuid==0.4.3
-slacker==0.9.9
 ipython==3.0.0
--e git+ssh://git@github.com/loanzen/connector-commons.git#egg=connector-commons

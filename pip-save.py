@@ -1,13 +1,16 @@
+#!/usr/bin/env python
+
 from __future__ import absolute_import
 import argparse
 from collections import OrderedDict
 import os
 import subprocess
 import operator
+
 from pip._vendor.packaging.specifiers import Specifier
 from pip.req import InstallRequirement
-import pkg_resources
 from pkg_resources import WorkingSet, Requirement
+import sys
 
 try:
     import configparser
@@ -97,7 +100,8 @@ class RequirementFileUpdater(object):
         self.write_requirement_file()
 
     def sort_requirements(self):
-        return sorted(self.existing_requirements.items(), key=operator.itemgetter(1))
+        return sorted(self.existing_requirements.items(),
+                      key=operator.itemgetter(0))
 
     def find_installed_requirement(self, pkgstring):
         req = Requirement.parse(pkgstring)
@@ -122,7 +126,7 @@ class RequirementFileUpdater(object):
         return req_str
 
     def write_requirement_file(self):
-        with open(self.requirement_file, "r+") as fd:
+        with open(self.requirement_file, "w") as fd:
             for _, req in self.sort_requirements():
                 req_str = self.get_requirement_str(req)
                 fd.write(req_str + '\n')
@@ -139,7 +143,8 @@ class RequirementFileUpdater(object):
         with open(self.requirement_file, "r+") as fd:
             for line in fd.readlines():
                 editable = line.startswith('-e')
-                insreq = self.parse_requirement(line.strip(), editable)
+                line = line.replace('-e ', '').strip()
+                insreq = self.parse_requirement(line, editable)
                 self.existing_requirements[insreq.name.lower()] = insreq
 
     def update(self, pkgstring, editable=False):
@@ -151,7 +156,7 @@ class RequirementFileUpdater(object):
             self.existing_requirements[req_project_name] = req
         else:
             if existing_req:
-                del self.existing_requirements[req]
+                del self.existing_requirements[req_project_name]
 
 
 def main():
@@ -183,6 +188,7 @@ def main():
     RequirementFileUpdater(config_dict, args.command, packages,
                            args.editables)
 
+    return 0
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
