@@ -6,16 +6,13 @@ from collections import OrderedDict
 import os
 import subprocess
 import operator
+from configparser import ConfigParser
 
 from pip._vendor.packaging.specifiers import Specifier
 from pip.req import InstallRequirement
 from pkg_resources import WorkingSet, Requirement
 import sys
 
-try:
-    import configparser
-except ImportError:
-    import ConfigParser as configparser
 
 CONFIG_FILE = '.pipconfig'
 
@@ -41,6 +38,7 @@ def parse_arguments():
                         help='Save requirements to specified requirement file')
 
     parser.add_argument('--use-compatible', action='store_true',
+                        default=False,
                         help='Will use the compatible release version '
                              'specifier(~=) for dependencies rather than using '
                              'the default exact version matching specifier(==)')
@@ -48,31 +46,18 @@ def parse_arguments():
     return parser
 
 
-def parse_config(args):
-    # http://stackoverflow.com/a/2819788/911557
-    class FakeSecHead(object):
-        def __init__(self, fp):
-            self.fp = fp
-            self.sechead = '[default]\n'
+def parse_config(args_dict):
+    config_dict = {}
+    config = ConfigParser(DEFAULT_OPTIONS)
+    config.read(CONFIG_FILE)
+    config_dict['requirement'] = config.get('pip-save', 'requirement',
+                                            vars=args_dict,
+                                            fallback=DEFAULT_OPTIONS['requirement'])
 
-        def readline(self):
-            if self.sechead:
-                try:
-                    return self.sechead
-                finally:
-                    self.sechead = None
-            else:
-                return self.fp.readline()
-
-    args_dict = {key: val for key, val in vars(args).items() if val is not None}
-    if os.path.exists(CONFIG_FILE):
-        config = configparser.configparser(DEFAULT_OPTIONS)
-        config.readfp(FakeSecHead(open(CONFIG_FILE)))
-        return dict(config.items('default', 0, vars=args_dict))
-
-    else:
-        config_dict = dict(DEFAULT_OPTIONS)
-        config_dict.update(args_dict)
+    config_dict['use_compatible'] = config.getboolean('pip-save',
+                                                      'use_compatible',
+                                                      vars=args_dict,
+                                                      fallback=DEFAULT_OPTIONS['use_compatible'])
 
     return config_dict
 
@@ -108,20 +93,26 @@ class RequirementFileUpdater(object):
         working_set = WorkingSet()
         if not req.specs:
             dist = working_set.find(req)
+            if not dist:
+                return ''
+
             comparator = '~=' if self.use_compatible else '=='
             specs = "%s%s" % (comparator, dist.version)
             req.specifier = Specifier(specs)
         return str(req)
 
     def get_requirement_str(self, insreq):
-        req_str = ''
-        if insreq.editable:
-            req_str += '-e '
 
         if insreq.link:
-            req_str += insreq.link.url
+            req_str = insreq.link.url
         else:
-            req_str += self.find_installed_requirement(insreq.name)
+            req_str = self.find_installed_requirement(insreq.name)
+
+        if not req_str:
+            return None
+
+        if insreq.editable:
+            req_str = '-e ' + req_str
 
         return req_str
 
@@ -129,7 +120,8 @@ class RequirementFileUpdater(object):
         with open(self.requirement_file, "w") as fd:
             for _, req in self.sort_requirements():
                 req_str = self.get_requirement_str(req)
-                fd.write(req_str + '\n')
+                if req_str:
+                    fd.write(req_str + '\n')
 
     @staticmethod
     def parse_requirement(pkgstring, editable=False):
@@ -142,6 +134,9 @@ class RequirementFileUpdater(object):
     def read_requirements(self):
         with open(self.requirement_file, "r+") as fd:
             for line in fd.readlines():
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
                 editable = line.startswith('-e')
                 line = line.replace('-e ', '').strip()
                 insreq = self.parse_requirement(line, editable)
@@ -183,7 +178,9 @@ def main():
     if pip_output != 0:
         return
 
-    config_dict = parse_config(args)
+    config_dict = parse_config(dict((key, getattr(args, key))
+                                    for key in DEFAULT_OPTIONS.keys()
+                                    if getattr(args, key)))
 
     RequirementFileUpdater(config_dict, args.command, packages,
                            args.editables)
