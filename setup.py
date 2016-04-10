@@ -36,7 +36,7 @@ test_requirements = [
 ]
 
 setup(
-    name='pip_save',
+    name='pip-save',
     version=get_version(),
     description="A wrapper around pip to add `npm --save` style functionality to pip",
     long_description=get_readme(),
@@ -51,9 +51,9 @@ setup(
     install_requires=requirements,
     license="ISCL",
     zip_safe=False,
-    keywords='pip_save',
+    keywords='pip-save',
     classifiers=[
-        'Development Status :: 2 - Al[',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Information Technology',
         'Intended Audience :: System Administrators',
         'License :: OSI Approved :: MIT License',
