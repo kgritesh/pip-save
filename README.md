@@ -1,5 +1,7 @@
 ### pip-save
 
+[<img src="https://img.shields.io/pypi/v/pip-save.svg">](https://pypi.python.org/pypi/pip-save)
+
 pip-save is a simple wrapper around **pip** so as to add ```npm --save``` style functionality to pip.
 
 Currently its a big pain while installing new dependencies using pip. After installing the dependency,
