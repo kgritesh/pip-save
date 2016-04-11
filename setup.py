@@ -8,9 +8,13 @@ from setuptools import setup, find_packages
 
 def get_readme():
     """Get the contents of the ``README.rst`` file as a Unicode string."""
-    with open('README.md') as readme_file:
-        return readme_file.read()
+    try:
+        import pypandoc
+        description = pypandoc.convert('README.md', 'rst')
+    except (IOError, ImportError):
+        description = open('README.md').read()
 
+    return description
 
 def get_absolute_path(*args):
     """Transform relative pathnames into absolute pathnames."""
@@ -56,7 +60,7 @@ setup(
         'Development Status :: 4 - Beta',
         'Intended Audience :: Information Technology',
         'Intended Audience :: System Administrators',
-        'License :: OSI Approved :: MIT License',
+        'License :: OSI Approved :: ISC License (ISCL)',
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: Microsoft :: Windows',
         'Operating System :: POSIX :: Linux',
