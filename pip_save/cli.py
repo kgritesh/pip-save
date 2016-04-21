@@ -7,7 +7,7 @@ import operator
 import subprocess
 import sys
 from collections import OrderedDict
-from configparser import ConfigParser
+from six.moves.configparser import ConfigParser
 
 import functools
 from pip.req import InstallRequirement

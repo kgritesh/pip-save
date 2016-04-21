@@ -34,6 +34,7 @@ def get_version():
 
 
 requirements = [
+    'six == 1.9.0',
 ]
 
 test_requirements = [
