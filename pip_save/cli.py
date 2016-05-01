@@ -84,39 +84,31 @@ class RequirementFileUpdater(object):
         return sorted(self.existing_requirements.items(),
                       key=functools.cmp_to_key(compare))
 
-    def find_installed_requirement(self, pkgstring):
-        req = Requirement.parse(pkgstring)
-        working_set = WorkingSet()
-        if not req.specs:
-            dist = working_set.find(req)
-            if not dist:
-                specs = None
-            else:
-                comparator = '~=' if self.use_compatible else '=='
-                specs = "%s%s" % (comparator, dist.version)
-        else:
-            specs = str(req.specifier)
-
-        return req.project_name, specs
-
-    def write_requirement_file(self):
-        with open(self.requirement_file, "w") as fd:
-            for _, req_str in self.sort_requirements():
-                fd.write('{}\n'.format(req_str))
-
     @staticmethod
-    def parse_requirement(pkgstring, editable=False):
-        if editable:
-            ins = InstallRequirement.from_editable(pkgstring)
-        else:
-            ins = InstallRequirement.from_line(pkgstring)
-
-        specs = '-e ' if editable else ''
+    def parse_editable_requirement(pkgstring):
+        ins = InstallRequirement.from_editable(pkgstring)
+        specs = '-e '
 
         if ins.link:
             return ins.name, specs + str(ins.link)
         else:
             return ins.name, specs + str(ins.specifier)
+
+    @staticmethod
+    def get_package_name(pkgstring):
+        ins = InstallRequirement.from_line(pkgstring)
+        return ins.name, str(ins.specifier)
+
+    def parse_requirement(self, pkgstring):
+        pkg_name, specs = self.get_package_name(pkgstring)
+        req = Requirement.parse(pkg_name)
+        working_set = WorkingSet()
+        dist = working_set.find(req)
+        if dist:
+            comparator = '~=' if self.use_compatible else '=='
+            specs = "%s%s" % (comparator, dist.version)
+
+        return req.project_name, specs
 
     def read_requirements(self):
         with open(self.requirement_file, "r+") as fd:
@@ -126,19 +118,25 @@ class RequirementFileUpdater(object):
                     continue
                 editable = line.startswith('-e')
                 line = line.replace('-e ', '').strip()
-                pkg_name, specifier = self.parse_requirement(line, editable)
                 if editable:
+                    pkg_name, specifier = self.parse_editable_requirement(line)
                     self.existing_requirements[pkg_name] = specifier
                 else:
+                    pkg_name, specifier = self.parse_requirement(line)
                     self.existing_requirements[pkg_name] = '{}{}'.format(pkg_name, specifier)
+
+    def write_requirement_file(self):
+        with open(self.requirement_file, "w") as fd:
+            for _, req_str in self.sort_requirements():
+                fd.write('{}\n'.format(req_str))
 
     def update(self, pkgstring, editable=False):
 
         if not editable and self.command == 'install':
-            pkg_name, specs = self.find_installed_requirement(pkgstring)
+            pkg_name, specs = self.parse_requirement(pkgstring)
             req_str = '{}{}'.format(pkg_name, specs)
         else:
-            pkg_name, specs = self.parse_requirement(pkgstring, editable)
+            pkg_name, specs = self.parse_editable_requirement(pkgstring)
             req_str = specs
 
         if self.command == 'install':
