@@ -17,18 +17,25 @@ CONFIG_FILE = '.pipconfig'
 
 DEFAULT_OPTIONS = {
     'requirement': 'requirements.txt',
-    'use_compatible': False
+    'use_compatible': False,
+    'requirement_dev': '%(requirement)s'
 }
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Run Pip Command')
-    parser.add_argument('command', help="command to execute")
+    parser.add_argument('command',
+                        choices=['install', 'uninstall'],
+                        help="command to execute")
     parser.add_argument('-e', '--editable', dest='editables',
                         action='append', default=[],
                         metavar='path/url',
                         help=('Install a project in editable mode (i.e. setuptools '
                             '"develop mode") from a local project path or a VCS url.'), )
+    parser.add_argument('--dev', dest='dev_requirement',
+                        default=False, action='store_true',
+                        help=('Mark the requirement as a dev requirement and hence its '
+                              'removed or added to the dev requirement file'))
     return parser
 
 
@@ -40,6 +47,8 @@ def parse_config():
 
     config_dict['use_compatible'] = config.getboolean('pip-save',
                                                       'use_compatible')
+
+    config_dict['requirement_dev'] = config.get('pip-save', 'requirement_dev')
     return config_dict
 
 
@@ -51,8 +60,10 @@ def execute_pip_command(command, args):
 
 class RequirementFileUpdater(object):
 
-    def __init__(self, config_dict, command, packages, editables):
-        self.requirement_file = config_dict['requirement']
+    def __init__(self, config_dict, command, packages, editables,
+                 dev_requirement=False):
+        self.requirement_file = config_dict['requirement_dev'] \
+            if dev_requirement else config_dict['requirement']
         self.use_compatible = config_dict.get('use_compatible', False)
         self.command = command
         self.existing_requirements = OrderedDict()
@@ -114,7 +125,7 @@ class RequirementFileUpdater(object):
         with open(self.requirement_file, "r+") as fd:
             for line in fd.readlines():
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith('#') or line.startswith('-r'):
                     continue
                 editable = line.startswith('-e')
                 line = line.replace('-e ', '').strip()
@@ -150,9 +161,6 @@ def main():
 
     args, remaining_args = parser.parse_known_args()
 
-    if args.command not in ['install', 'uninstall', 'upgrade']:
-        raise NameError("Unsupported command %s" % args.command)
-
     packages = []
     for arg in remaining_args:
         if not arg.startswith('-'):
@@ -169,7 +177,7 @@ def main():
     config_dict = parse_config()
 
     RequirementFileUpdater(config_dict, args.command, packages,
-                           args.editables)
+                           args.editables, args.dev_requirement)
 
     return 0
 
