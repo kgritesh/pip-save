@@ -132,7 +132,7 @@ class RequirementFileUpdater(object):
 
     def update(self, pkgstring, editable=False):
 
-        if not editable and self.command == 'install':
+        if not editable:
             pkg_name, specs = self.parse_requirement(pkgstring)
             req_str = '{}{}'.format(pkg_name, specs)
         else:
