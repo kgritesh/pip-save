@@ -4,6 +4,7 @@ from __future__ import absolute_import
 
 import argparse
 import operator
+import os
 import subprocess
 import sys
 from collections import OrderedDict
@@ -13,7 +14,7 @@ import functools
 from pip.req import InstallRequirement
 from pkg_resources import WorkingSet, Requirement
 
-CONFIG_FILE = '.pipconfig'
+DEFAULT_CONFIG_FILE = '.pipconfig'
 
 DEFAULT_OPTIONS = {
     'requirement': 'requirements.txt',
@@ -31,7 +32,15 @@ def parse_arguments():
                         action='append', default=[],
                         metavar='path/url',
                         help=('Install a project in editable mode (i.e. setuptools '
-                            '"develop mode") from a local project path or a VCS url.'), )
+                              '"develop mode") from a local project path or a '
+                              'VCS url.'), )
+
+    parser.add_argument('--config', dest='config_file',
+                        default=DEFAULT_CONFIG_FILE,
+                        help=(
+                            'Config File To be used'
+                        ))
+
     parser.add_argument('--dev', dest='dev_requirement',
                         default=False, action='store_true',
                         help=('Mark the requirement as a dev requirement and hence its '
@@ -39,10 +48,15 @@ def parse_arguments():
     return parser
 
 
-def parse_config():
+def parse_config(config_file=DEFAULT_CONFIG_FILE):
+    if not os.path.exists(config_file):
+        config_dict = dict(DEFAULT_OPTIONS)
+        config_dict['requirement_dev'] = config_dict['requirement']
+        return config_dict
+
     config_dict = {}
     config = ConfigParser(DEFAULT_OPTIONS)
-    config.read(CONFIG_FILE)
+    config.read(config_file)
     config_dict['requirement'] = config.get('pip-save', 'requirement')
 
     config_dict['use_compatible'] = config.getboolean('pip-save',
@@ -174,7 +188,7 @@ def main():
     if pip_output != 0:
         return
 
-    config_dict = parse_config()
+    config_dict = parse_config(args.config_file)
 
     RequirementFileUpdater(config_dict, args.command, packages,
                            args.editables, args.dev_requirement)
