@@ -1,0 +1,4 @@
+[pip-save]
+requirement = requirements.txt
+use_compatible = False
+requirement_dev = requirements_dev.txt

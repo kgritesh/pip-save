@@ -1,3 +1,5 @@
 ipython==4.0.0
+mock==2.0.0
+pytest==3.0.2
 six==1.9.0
 twine==1.8.1

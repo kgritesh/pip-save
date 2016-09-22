@@ -1,0 +1,3 @@
+[pip-save]
+requirement = requirements.txt
+use_compatible = False

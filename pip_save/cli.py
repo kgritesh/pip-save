@@ -72,102 +72,98 @@ def execute_pip_command(command, args):
     return subprocess.call(pip_cmd)
 
 
-class RequirementFileUpdater(object):
+def parse_requirement(pkgstring, comparator='=='):
+    ins = InstallRequirement.from_line(pkgstring)
+    pkg_name, specs = ins.name, str(ins.specifier)
+    if specs:
+        return pkg_name, specs
 
-    def __init__(self, config_dict, command, packages, editables,
-                 dev_requirement=False):
-        self.requirement_file = config_dict['requirement_dev'] \
-            if dev_requirement else config_dict['requirement']
-        self.use_compatible = config_dict.get('use_compatible', False)
-        self.command = command
-        self.existing_requirements = OrderedDict()
-        self.read_requirements()
-        self.current_packages = []
+    req = Requirement.parse(pkg_name)
+    working_set = WorkingSet()
+    dist = working_set.find(req)
+    if dist:
+        specs = "%s%s" % (comparator, dist.version)
 
-        for pkg in packages:
-            self.update(pkg)
+    return req.project_name, specs
 
-        for pkg in editables:
-            self.update(pkg, editable=True)
 
-        self.write_requirement_file()
+def parse_editable_requirement(pkgstring):
+    ins = InstallRequirement.from_editable(pkgstring)
+    specs = '-e '
 
-    def sort_requirements(self):
-        def compare(pkg1, pkg2):
-            name1, req_str1 = pkg1
-            name2, req_str2 = pkg2
+    if ins.link:
+        return ins.name, specs + str(ins.link)
+    else:
+        return ins.name, specs + str(ins.specifier)
 
-            if req_str2.startswith('-e'):
-                return -1
-            elif req_str1.startswith('-e'):
-                return 1
-            elif name1.lower() < name2.lower():
-                return -1
+
+def sort_requirements(requirements_dict):
+    def compare(pkg1, pkg2):
+        name1, req_str1 = pkg1
+        name2, req_str2 = pkg2
+
+        if req_str2.startswith('-e'):
+            return -1
+        elif req_str1.startswith('-e'):
+            return 1
+        elif name1.lower() < name2.lower():
+            return -1
+        else:
+            return 1
+
+    return sorted(requirements_dict.items(),
+                  key=functools.cmp_to_key(compare))
+
+
+def read_requirements(requirement_file):
+    existing_requirements = OrderedDict()
+    with open(requirement_file, "r+") as fd:
+        for line in fd.readlines():
+            line = line.strip()
+            if not line or line.startswith('#') or line.startswith('-r'):
+                continue
+            editable = line.startswith('-e')
+            line = line.replace('-e ', '').strip()
+            if editable:
+                pkg_name, link = parse_editable_requirement(line)
+                existing_requirements[pkg_name] = link
             else:
-                return 1
+                pkg_name, specifier = parse_requirement(line)
+                existing_requirements[pkg_name] = '{}{}'.format(pkg_name,
+                                                                specifier)
+    return existing_requirements
 
-        return sorted(self.existing_requirements.items(),
-                      key=functools.cmp_to_key(compare))
 
-    @staticmethod
-    def parse_editable_requirement(pkgstring):
-        ins = InstallRequirement.from_editable(pkgstring)
-        specs = '-e '
+def write_requirements(requirement_file, requirements_dict):
+    with open(requirement_file, "w") as fd:
+        for _, req_str in sort_requirements(requirements_dict):
+            fd.write('{}\n'.format(req_str))
 
-        if ins.link:
-            return ins.name, specs + str(ins.link)
-        else:
-            return ins.name, specs + str(ins.specifier)
 
-    @staticmethod
-    def get_package_name(pkgstring):
-        ins = InstallRequirement.from_line(pkgstring)
-        return ins.name, str(ins.specifier)
+def update_requirement_file(config_dict, command, packages, editables,
+                            dev_requirement=False):
+    requirement_file = config_dict['requirement_dev'] \
+        if dev_requirement else config_dict['requirement']
 
-    def parse_requirement(self, pkgstring):
-        pkg_name, specs = self.get_package_name(pkgstring)
-        req = Requirement.parse(pkg_name)
-        working_set = WorkingSet()
-        dist = working_set.find(req)
-        if dist:
-            comparator = '~=' if self.use_compatible else '=='
-            specs = "%s%s" % (comparator, dist.version)
+    existing_requirements = read_requirements(requirement_file)
+    update_requirements = OrderedDict()
 
-        return req.project_name, specs
+    for pkg in packages:
+        pkg_name, specs = parse_requirement(pkg)
+        update_requirements[pkg_name] = '{}{}'.format(pkg_name, specs)
 
-    def read_requirements(self):
-        with open(self.requirement_file, "r+") as fd:
-            for line in fd.readlines():
-                line = line.strip()
-                if not line or line.startswith('#') or line.startswith('-r'):
-                    continue
-                editable = line.startswith('-e')
-                line = line.replace('-e ', '').strip()
-                if editable:
-                    pkg_name, specifier = self.parse_editable_requirement(line)
-                    self.existing_requirements[pkg_name] = specifier
-                else:
-                    pkg_name, specifier = self.parse_requirement(line)
-                    self.existing_requirements[pkg_name] = '{}{}'.format(pkg_name, specifier)
+    for pkg in editables:
+        pkg_name, link = parse_editable_requirement(pkg)
+        update_requirements[pkg_name] = link
 
-    def write_requirement_file(self):
-        with open(self.requirement_file, "w") as fd:
-            for _, req_str in self.sort_requirements():
-                fd.write('{}\n'.format(req_str))
+    if command == 'install':
+        existing_requirements.update(update_requirements)
+    else:
+        for key in update_requirements:
+            if key in existing_requirements:
+                del existing_requirements[key]
 
-    def update(self, pkgstring, editable=False):
-
-        if not editable:
-            pkg_name, specs = self.parse_requirement(pkgstring)
-            req_str = '{}{}'.format(pkg_name, specs)
-        else:
-            pkg_name, specs = self.parse_editable_requirement(pkgstring)
-            req_str = specs
-
-        if self.command == 'install':
-            self.existing_requirements[pkg_name] = req_str
-        else:
-            self.existing_requirements.pop(pkg_name, None)
+    write_requirements(requirement_file, existing_requirements)
 
 
 def main():
@@ -190,8 +186,8 @@ def main():
 
     config_dict = parse_config(args.config_file)
 
-    RequirementFileUpdater(config_dict, args.command, packages,
-                           args.editables, args.dev_requirement)
+    update_requirement_file(config_dict, args.command, packages,
+                            args.editables, args.dev_requirement)
 
     return 0
 
