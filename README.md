@@ -2,6 +2,11 @@
 
 [<img src="https://img.shields.io/pypi/v/pip-save.svg">](https://pypi.python.org/pypi/pip-save)
 
+#### DEPREACATED
+I no longer use/support this library. A much better approach to solve this problem is now available at [pipenv](https://github.com/kennethreitz/pipenv). Strongly recommend to try that out
+
+<hr />
+
 pip-save is a simple wrapper around **pip** so as to add ```npm --save``` style functionality to pip.
 
 Currently its a big pain while installing new dependencies using pip. After installing the dependency,
@@ -16,7 +21,7 @@ it accepts all options/config as these commands.
 
 	$ pip install pip-save
 
-####Use
+#### Usage
 
 To Install a package and add it to your requirements.tx
 
