@@ -1,4 +1,4 @@
-ipython==4.0.0
+ipython==7.16.3
 mock==2.0.0
 pytest==3.0.2
 six==1.9.0
